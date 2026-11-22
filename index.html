@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ตัดไฟล์ข้อมูลโรงพยาบาล</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f3fa;color:#29243a;font:16px/1.65 system-ui,sans-serif}main{max-width:1000px;margin:48px auto;padding:0 22px}h1{font-size:clamp(26px,4vw,36px);margin:8px 0}p{margin:8px 0;color:#6c657d}.eyebrow{color:#7551af;font-weight:700;letter-spacing:1px;font-size:13px}.card{background:white;border:1px solid #e7e1ee;border-radius:20px;padding:26px;margin-top:24px;box-shadow:0 8px 32px #35244f05}label{display:block;font-weight:650;margin-bottom:8px}input,select,button{font:inherit}input[type=file],select{width:100%;padding:12px;border:1px solid #d9d0e5;border-radius:10px;background:#fff;color:#29243a}input[type=file]::file-selector-button{border:0;background:#eee8f7;color:#533280;padding:8px 12px;border-radius:6px;margin-right:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.tabs{display:flex;gap:8px;margin:20px 0}.tabs button{border:1px solid #d9d0e5;background:white;border-radius:10px;padding:10px 18px;cursor:pointer}.tabs button[aria-pressed=true]{background:#eee6fb;border-color:#8057ba;color:#533280}.stats{display:flex;gap:40px;flex-wrap:wrap;margin:24px 0}.stat strong{display:block;font-size:32px;color:#59378a}.stat span{color:#756b82;font-size:14px}#download{background:#603a91;color:white;border:0;border-radius:10px;padding:13px 24px;cursor:pointer;font-weight:650}button:disabled{opacity:.45;cursor:not-allowed}#status{font-size:14px;margin-top:12px}#status.error{color:#b33340}.table-wrap{overflow:auto;max-height:360px;margin-top:14px}table{border-collapse:collapse;width:100%;font-size:14px;white-space:nowrap}th,td{text-align:left;padding:10px 14px;border-bottom:1px solid #eee9f3}th{background:#f8f5fc;position:sticky;top:0}h2{font-size:18px;margin:0}.note{font-size:13px;margin-top:14px}@media(max-width:600px){main{margin:24px auto}.card{padding:20px}.grid{grid-template-columns:1fr}.stats{gap:24px}}
+</style>
+</head>
+<body>
+<main>
+<div class="eyebrow">HOSPITAL DATA TOOLS</div>
+<h1>ตัดไฟล์ข้อมูลโรงพยาบาล</h1>
+<p>เลือกข้อมูลรายจังหวัดหรือเขตสุขภาพ แล้วส่งออกเป็น hospital-dashboard.csv</p>
+<section class="card">
+<div class="grid"><div><label for="file">1. เลือกไฟล์ต้นฉบับ</label><input id="file" type="file" accept=".csv,text/csv"></div><div><label for="encoding">รหัสภาษาไฟล์</label><select id="encoding"><option value="auto">ตรวจสอบอัตโนมัติ</option value="utf-8">UTF-8</option><option value="windows-874">Windows-874 / TIS-620</option></select></div></div>
+<p class="note">เลือก hospital-dashboard-all.csv • ประมวลผลบนเครื่องของคุณ ไม่มีการอัปโหลดข้อมูล</p>
+<div id="status" role="status" aria-live="polite">กำลังตรวจสอบไฟล์ต้นฉบับ…</div>
+<label style="margin-top:24px">2. เลือกรูปแบบการตัดข้อมูล</label>
+<div class="tabs"><button id="provinceMode" type="button" aria-pressed="true">รายจังหวัด</button><button id="regionMode" type="button" aria-pressed="false">รายเขตสุขภาพ</button></div>
+<label id="selectionLabel" for="selection">จังหวัด</label><select id="selection" disabled><option value="">กรุณาเลือกไฟล์ก่อน</option></select>
+<div class="stats"><div class="stat"><strong id="total">0</strong><span>แถวในไฟล์ต้นฉบับ</span></div><div class="stat"><strong id="matched">0</strong><span>แถวที่เลือกส่งออก</span></div></div>
+<button id="download" disabled>ดาวน์โหลด hospital-dashboard.csv</button>
+<p class="note">เก็บทุกคอลัมน์ตามต้นฉบับ ส่งออกเป็น UTF-8 พร้อม BOM สำหรับเปิดใน Excel</p>
+</section>
+<section class="card"><h2>ตัวอย่างข้อมูลที่เลือก</h2><p class="note">แสดงไม่เกิน 20 แถว • จำนวนด้านบนเป็นจำนวนแถวข้อมูล ไม่รวมส่วนหัว</p><div class="table-wrap"><table><thead id="head"></thead><tbody id="body"></tbody></table></div></section>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+let headers=[],rows=[],filtered=[],mode='province',sourceBuffer=null,sourceName='',loadVersion=0;
+const number=n=>n.toLocaleString('th-TH');
+function status(message,error=false){$('status').textContent=message;$('status').className=error?'error':'';}
+function parseCSV(text){
+ const records=[];let row=[],field='',quoted=false;
+ text=text.replace(/^\uFEFF/,'');
+ for(let i=0;i<text.length;i++){
+  const c=text[i];
+  if(c==='"'){if(quoted&&text[i+1]==='"'){field+='"';i++;}else if(quoted){quoted=false;}else if(field===''){quoted=true;}else{throw Error('รูปแบบเครื่องหมายคำพูดใน CSV ไม่ถูกต้อง');}}
+  else if(c===','&&!quoted){row.push(field);field='';}
+  else if((c==='\n'||c==='\r')&&!quoted){row.push(field);if(row.some(v=>v!==''))records.push(row);row=[];field='';if(c==='\r'&&text[i+1]==='\n')i++;}
+  else field+=c;
+ }
+ if(quoted)throw Error('ไฟล์ CSV มีเครื่องหมายคำพูดปิดไม่ครบ');
+ row.push(field);if(row.some(v=>v!==''))records.push(row);return records;
+}
+function reset(){headers=[];rows=[];filtered=[];$('selection').replaceChildren(new Option('กรุณาเลือกไฟล์ที่ถูกต้อง',''));$('selection').disabled=true;render();}
+function decode(){
+ reset();try{
+  let enc=$('encoding').value,text;
+  if(enc==='auto'){try{text=new TextDecoder('utf-8',{fatal:true}).decode(sourceBuffer);enc='utf-8';}catch{enc='windows-874';text=new TextDecoder(enc).decode(sourceBuffer);}}
+  else text=new TextDecoder(enc,{fatal:true}).decode(sourceBuffer);
+  const parsed=parseCSV(text);if(!parsed.length)throw Error('ไฟล์ไม่มีข้อมูล');
+  const h=parsed.shift();for(const key of ['pvcode','pvname','region'])if(!h.includes(key))throw Error('ไม่พบคอลัมน์ '+key+' ในไฟล์');
+  const bad=parsed.findIndex(r=>r.length!==h.length);if(bad>=0)throw Error('จำนวนคอลัมน์ไม่ตรงกับส่วนหัว ที่แถวข้อมูล '+(bad+1));
+  headers=h;rows=parsed;populate();status('โหลด '+sourceName+' สำเร็จ • '+(enc==='utf-8'?'UTF-8':'Windows-874 / TIS-620')+' • '+number(headers.length)+' คอลัมน์');
+ }catch(error){reset();status(error.message,true);}
+}
+function populate(){
+ const key=headers.indexOf(mode==='province'?'pvcode':'region'),name=headers.indexOf('pvname'),values=new Map();
+ for(const r of rows){const value=r[key].trim();if(value&&!values.has(value))values.set(value,mode==='province'?(r[name].trim()||value):'เขตสุขภาพ '+value);}
+ const select=$('selection');select.replaceChildren(new Option(mode==='province'?'— เลือกจังหวัด —':'— เลือกเขตสุขภาพ —',''));
+ for(const [v,label] of [...values].sort((a,b)=>a[0].localeCompare(b[0],'th',{numeric:true})))select.add(new Option(label,v));
+ select.disabled=false;filter();
+}
+function filter(){const index=headers.indexOf(mode==='province'?'pvcode':'region'),value=$('selection').value;filtered=value?rows.filter(r=>r[index].trim()===value):[];render();}
+function render(){
+ $('total').textContent=number(rows.length);$('matched').textContent=number(filtered.length);$('download').disabled=!filtered.length;
+ $('head').replaceChildren();$('body').replaceChildren();
+ const keys=['hcode','hname','pvname','region'],tr=document.createElement('tr');
+ for(const key of keys){const th=document.createElement('th');th.textContent=key;tr.append(th);}$('head').append(tr);
+ for(const row of filtered.slice(0,20)){const tr=document.createElement('tr');for(const key of keys){const td=document.createElement('td');td.textContent=row[headers.indexOf(key)]??'';tr.append(td);}$('body').append(tr);}
+}
+function setMode(value){mode=value;$('provinceMode').setAttribute('aria-pressed',String(value==='province'));$('regionMode').setAttribute('aria-pressed',String(value==='region'));$('selectionLabel').textContent=value==='province'?'จังหวัด':'เขตสุขภาพ';if(headers.length)populate();}
+$('provinceMode').onclick=()=>setMode('province');$('regionMode').onclick=()=>setMode('region');$('selection').onchange=filter;
+$('file').onchange=async()=>{const file=$('file').files[0];if(!file)return;const version=++loadVersion;reset();status('กำลังอ่านไฟล์…');try{const buffer=await file.arrayBuffer();if(version!==loadVersion)return;sourceBuffer=buffer;sourceName=file.name;decode();}catch(error){if(version===loadVersion)status('อ่านไฟล์ไม่สำเร็จ: '+error.message,true);}};
+$('encoding').onchange=()=>{if(sourceBuffer)decode();};
+function csvCell(value){return /[",\r\n]/.test(value)?'"'+value.replace(/"/g,'""')+'"':value;}
+$('download').onclick=()=>{if(!filtered.length)return;const csv='\uFEFF'+[headers,...filtered].map(r=>r.map(csvCell).join(',')).join('\r\n')+'\r\n';const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='hospital-dashboard.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);};
+(async()=>{const version=loadVersion;try{if(location.protocol==='file:')throw Error();const response=await fetch('./hospital-dashboard-all.csv');if(!response.ok)throw Error();const buffer=await response.arrayBuffer();if(version!==loadVersion)return;sourceBuffer=buffer;sourceName='hospital-dashboard-all.csv';decode();}catch{if(version===loadVersion)status('เลือกไฟล์ hospital-dashboard-all.csv เพื่อเริ่มใช้งาน');}})();
+</script>
+</body>
+</html>
